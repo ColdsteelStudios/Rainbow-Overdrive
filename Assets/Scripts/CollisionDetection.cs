@@ -18,10 +18,16 @@ public class CollisionDetection : MonoBehaviour
 		{
 			//Collision with a wall = death
 			if(other.transform.tag == "Wall")
-				KillMe();
+            {
+                Debug.Log("Death from wall");
+                KillMe();
+            }
 			//Collision with trail colliders = death
 			if(other.transform.name == "trailCollider(Clone)")
-				KillMe ();
+            {
+                Debug.Log("Death from trail collider");
+                KillMe();
+            }
 		}
 	}
 
@@ -30,24 +36,18 @@ public class CollisionDetection : MonoBehaviour
 		//Send RPC message to match manager letting it know were dead
 		PhotonView l_matchPhotonView = GameObject.Find ("MatchManager").GetComponent<PhotonView>();
 		l_matchPhotonView.RPC ( "PlayerDead", PhotonTargets.All );
-		//Destroy our colliders
-		gameObject.SendMessage ("DestroyColliders");
-		//Destroy our trail renderer
-		if(transform.FindChild ("Trail(Clone))"))
-		{
-			GameObject l_trail = transform.FindChild ("Trail(Clone)").gameObject;
-			PhotonNetwork.Destroy(l_trail);
-		}
-		//Destroy our player
-		PhotonNetwork.Destroy (gameObject);
-	}
+        //Tell our player to clean up
+        PhotonView PV = transform.GetComponent<PhotonView>();
+        PV.RPC("DestroyColliders", PhotonTargets.All);
+        PV.RPC("Cleanup", PV.owner);
+    }
 
 	[RPC]
 	public void GameOver()
 	{
-		//Destroy our colliders
-		gameObject.SendMessage ("DestroyColliders");
-		//Destroy our player
-		PhotonNetwork.Destroy (gameObject);
-	}
+        //Tell our player to clean up
+        PhotonView PV = transform.GetComponent<PhotonView>();
+        PV.RPC("DestroyColliders", PhotonTargets.All);
+        PV.RPC("Cleanup", PV.owner);
+    }
 }

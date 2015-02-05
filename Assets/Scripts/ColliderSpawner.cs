@@ -7,57 +7,55 @@ public class ColliderSpawner : MonoBehaviour
 	public float m_spawnInterval;
 	public float m_boostSpawnInterval;
 	private float m_nextSpawn;
-
 	public GameObject m_colliderPrefab;
+	public GameObject m_colliderParentPrefab;
+	private GameObject m_colliderParent;
+	private PhotonView m_PV;
 
-	private List<GameObject> m_colliderObjects;
-
-	void Start () 
+	void Start ()
 	{
 		m_nextSpawn = 0.0f;
-		m_colliderObjects = new List<GameObject> ();
+		m_PV = transform.GetComponent<PhotonView> ();
 	}
 	
 	void Update () 
 	{
-		m_nextSpawn -= Time.deltaTime;
-		
-		if(m_nextSpawn <= 0.0f)
+		if(m_PV.isMine)
 		{
-			SpawnCollider();
+			m_nextSpawn -= Time.deltaTime;
 			
-			if((Input.GetKey (KeyCode.LeftShift))||
-			   (Input.GetKey (KeyCode.RightShift)))
-				m_nextSpawn = m_boostSpawnInterval;
-			else
-				m_nextSpawn = m_spawnInterval;
-		}
-	}
-
-	//This function will only be called by a player when they die, this will
-	//destroy all of their trail colliders across the network.
-	public void DestroyColliders()
-	{
-		if(m_colliderObjects != null)
-		{
-			if(m_colliderObjects.Count > 0)
+			if(m_nextSpawn <= 0.0f)
 			{
-				foreach(GameObject collider in m_colliderObjects)
-					PhotonNetwork.Destroy(collider);
+				m_PV.RPC ("SpawnCollider", PhotonTargets.All);
+				m_nextSpawn = m_spawnInterval;
 			}
 		}
 	}
 
-	private void SpawnCollider()
+	public void CreateNewColliderParent()
 	{
-		//Calculate the correct position to spawn our new collider
-		Vector3 l_colliderSpawnPosition = transform.position + (-transform.forward * 2.1f);
-		//Add a new collider to the scene, place is just behind the player
-		GameObject l_newSpawn = PhotonNetwork.Instantiate("trailCollider", l_colliderSpawnPosition, Quaternion.identity, 0) as GameObject;
-		//Rotate the collider so its facing the right direction and lines up with the bikes trail
-		l_newSpawn.transform.LookAt(l_newSpawn.transform.position + transform.right);
-		//Add the collider to our list of spawned colliders so we know which ones we have added to the scene.
-		//We need this list so we can remove all of our colliders from the scene when we die
-		m_colliderObjects.Add(l_newSpawn);
+		m_colliderParent = GameObject.Instantiate (m_colliderParentPrefab, Vector3.zero, Quaternion.identity) as GameObject;
+	}
+
+	[RPC]
+	public void DestroyColliders()
+	{
+		GameObject.Destroy (m_colliderParent);
+	}
+
+	[RPC]
+	public void SpawnCollider()
+	{
+        if(m_colliderParent!=null)
+        {
+            //Calculate the correct position to spawn our new collider
+            Vector3 l_colliderSpawnPosition = transform.position + (-transform.forward * 2.1f);
+            //Add a new collider to the scene, place is just behind the player
+            GameObject l_newSpawn = GameObject.Instantiate(m_colliderPrefab, l_colliderSpawnPosition, Quaternion.identity) as GameObject;
+            //Rotate the collider so its facing the right direction and lines up with the bikes trail
+            l_newSpawn.transform.LookAt(l_newSpawn.transform.position + transform.right);
+            //Set its parent
+            l_newSpawn.transform.parent = m_colliderParent.transform;
+        }
 	}
 }

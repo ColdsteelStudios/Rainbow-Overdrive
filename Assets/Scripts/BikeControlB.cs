@@ -21,6 +21,7 @@ public class BikeControlB : MonoBehaviour
 	private GameObject m_lightsChild;
 	private float m_childRotation;
 	public GameObject m_trailPrefab;
+	private GameObject m_myTrail;
 
 	//Set to true when match starts, allows bike to move, recieve input etc.
 	private bool m_bikeReady = false;
@@ -40,6 +41,14 @@ public class BikeControlB : MonoBehaviour
 		}
 	}
 
+	//Cleans up all our colliders, our trail and then destroys ourself
+	[RPC]
+	public void Cleanup()
+	{
+		PhotonNetwork.Destroy (m_myTrail);
+		PhotonNetwork.Destroy (this.gameObject);
+	}
+
 	[RPC]
 	public void Victory()
 	{
@@ -48,23 +57,26 @@ public class BikeControlB : MonoBehaviour
 
 	//Called from host once countdown is over and match begins
 	[RPC]
-	public void BikeReady()
+	public void StartMatch()
 	{
-		//Unlock controls
-		m_bikeReady = true;
+		PhotonView PV = transform.GetComponent<PhotonView> ();
+		if(PV.isMine)
+		{
+			//Activate box collider
+			transform.GetComponent<BoxCollider> ().enabled = true;
+			//Turn gravity back on
+			transform.GetComponent<Rigidbody> ().useGravity = true;
+			//Unlock controls
+			m_bikeReady = true;
+			//Add a trail renderer to the bike
+			m_myTrail = PhotonNetwork.Instantiate("Trail", transform.position, Quaternion.identity, 0) as GameObject;
+			//Parent it
+			m_myTrail.transform.parent = transform;
+		}
 		//Activate collider spawner
 		transform.GetComponent<ColliderSpawner>().enabled = true;
-		//Add a trail renderer to the bike
-		GameObject l_rainbowTrail = PhotonNetwork.Instantiate("Trail", transform.position, Quaternion.identity, 0) as GameObject;
-		//Parent it
-		l_rainbowTrail.transform.parent = transform;
-	}
-
-	//Sets scene camera to follow us
-	[RPC]
-	public void SetCamera()
-	{
-		GameObject.Find ("Camera").GetComponent<SmoothFollower>().target = transform;
+		//Spawn new collider spawner parent
+		transform.GetComponent<ColliderSpawner> ().CreateNewColliderParent ();
 	}
 
 	//This is only ever called by the MatchManager when setting
@@ -74,6 +86,8 @@ public class BikeControlB : MonoBehaviour
 	{
 		transform.position = a_newPosition;
 		transform.LookAt(GameObject.Find ("ArenaCenter").transform.position);
+		//Tell scene camera to follow us
+		GameObject.Find ("Camera").GetComponent<SmoothFollower>().target = transform;
 	}
 
 	private void MoveBikeForward()
@@ -89,10 +103,10 @@ public class BikeControlB : MonoBehaviour
 	private void SteerBike()
 	{
 		if((Input.GetKey (KeyCode.LeftArrow)) ||
-			(Input.GetKey (KeyCode.A)))
+			(Input.GetKey (KeyCode.A)) || (Input.GetAxis("Horizontal")<0.0f))
 			TurnLeft();
 		else if((Input.GetKey (KeyCode.RightArrow)) ||
-		   (Input.GetKey (KeyCode.D)))
+		   (Input.GetKey (KeyCode.D)) || (Input.GetAxis("Horizontal")>0.0f))
 			TurnRight();
 		else
 			ResetLeaning();

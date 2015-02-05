@@ -28,6 +28,8 @@ public class ConnectionSetup : MonoBehaviour
 	private float m_roomTimeout;
 	private bool m_connectedToRoom;
 
+
+
 	void Start()
 	{
 		TryConnectPhoton();
@@ -129,18 +131,18 @@ public class ConnectionSetup : MonoBehaviour
 		m_photonConnectionFailed = false;
 		m_connectedToPhoton = true;
 		m_connectedToRoom = true;
-
-		//When joining a room, check for m_startedNewGame
-		//If true, this player will be run the manager
-		//script until they disconnect
-		if(m_startedNewGame)
-			GameObject.Find ("MatchManager").SendMessage ("SetManager");
 	}
 
 	void OnPhotonCreateGameFailed()
 	{
 		m_createGameFailed = true;
 		m_messageDisplay.text = "Failed to create a new game" + "\n" + "Check your connection and firewall settings" + "\n" + "F1 to retry" + "\n" + "Escape to quit";
+	}
+
+	void OnCreatedRoom()
+	{
+		//When we create a new room we want to take ownership of the match manager
+		GameObject.Find ("MatchManager").GetComponent<MatchManager> ().RequestOwnership ();
 	}
 
 	void OnConnectedToPhoton()

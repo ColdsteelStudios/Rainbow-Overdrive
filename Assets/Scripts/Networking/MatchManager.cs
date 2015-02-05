@@ -1,8 +1,7 @@
 ﻿// ---------------------------------------------------------------------------
-// MatchManager.cs
+// MatchManagerB.cs
 // 
-// Starts new matches, spawns players, announces winner before start of next
-// match etc.
+// Handles spawning of players, starting of matches and cleanup at the end
 // 
 // Original Author: Harley Laurie
 // ---------------------------------------------------------------------------
@@ -11,249 +10,252 @@ using UnityEngine;
 using UnityEngine.UI;
 using System.Collections;
 
-public class MatchManager : MonoBehaviour
+[RequireComponent( typeof( PhotonView ) )]
+public class MatchManager : Photon.MonoBehaviour 
 {
-	//Parts of the menu, will be removed when match
-	//starts then added back if disconnection or 
-	//other errors occur
-	public GameObject m_screenCover;
-	public GameObject m_defaultCamera;
-	public Text m_messageDisplay;
-
-	//Following variables are only used by the game
-	//manager, they aren't hosting the game but they
-	//are taking care of everything that a server
-	//normally would handle.
-	private bool m_isManager;
-	private int m_connectedPlayers = 0;
-	private bool m_matchActive = false;
-	private bool m_matchStarting = false;
-	private float m_matchCountdown = 3.0f;
-	private bool m_enoughPlayers = false;
-	private bool m_spreadCountdown = false;
-	private float m_spreadCounter = 3.0f;
-	private bool m_postMatch = false;
-	private float m_postMatchCounter = 10.0f;
-	private bool m_matchCompleteDelay = false;
-	private float m_matchCompleteCounter = 3.0f;
-
-	private int m_playersRemaining;
-
-	//Used for spawning into the map
-	public GameObject m_bikePrefab;
-	private PhotonView m_photonView;
+	//How many players are currently connected
+	private int m_playerCount = 1;
+	//How many players are currently alive
+	private int m_playersAlive;
+	//Turns true once a second player connects
+	private bool m_gameStarted = false;
+	//Displays messages on GUI letting players
+	//know what is going on before the match
+	//has started
+	private Text m_messageDisplay;
+	//Countdown for beginning of the match
+	private float m_matchCountdown;
+	private bool m_matchCountdownActive;
 
 	void Start()
 	{
-		m_photonView = gameObject.GetComponent<PhotonView>();
+		//Grab the scenes message display object so
+		//we can display messages to players
+		m_messageDisplay = GameObject.Find ("Text").GetComponent<Text> ();
 	}
 
 	void Update()
 	{
-		//Make sure only the game manager is running this code
-		if(m_isManager)
-		{
-			//When player starts a new room, they have to wait
-			//for a second player to join before they can begin
-			if(!m_enoughPlayers)
-			{
-				if(m_connectedPlayers >= 2)
-				{
-					m_enoughPlayers = true;
-					StartNewMatch();
-				}
-			}
-
-			//Counter before finding and spreading players at the 
-			//start of a new match
-			if(m_spreadCountdown && (m_spreadCounter > 0.0f ))
-			{
-				m_spreadCounter -= Time.deltaTime;
-				if ( m_spreadCounter <= 0.0f )
-				{
-					m_spreadCountdown = false;
-					Spread ();
-				}
-			}
-
-			//ITS THE FINAL COUNTDOWN
-			//before the match finally starts
-			if(m_matchStarting && (m_matchCountdown>0.0f))
-			{
-				m_matchCountdown -= Time.deltaTime;
-				string l_displayMessage = "Starting in " + ((int)m_matchCountdown);
-				transform.GetComponent<PhotonView>().RPC ( "SetDisplayMessage", PhotonTargets.All, l_displayMessage );
-				if(m_matchCountdown < 0.0f)
-					StartMatch();
-			}
-
-			//Post match countdown before new match starts
-			if(m_postMatch && (m_postMatchCounter>0.0f))
-			{
-				m_postMatchCounter -= Time.deltaTime;
-				if(m_postMatchCounter <= 5.0f)
-				{
-					string l_displayMessage = "Next match will begin in " + ((int)m_postMatchCounter);
-					transform.GetComponent<PhotonView>().RPC ( "SetDisplayMessage", PhotonTargets.All, l_displayMessage );
-				}
-				if(m_postMatchCounter <= 0.0f)
-				{
-					Reset();
-				}
-			}
-
-			//Delay before victor is announced
-			if(m_matchCompleteDelay && (m_matchCompleteCounter>0.0f))
-			{
-				m_matchCompleteCounter -= Time.deltaTime;
-				if(m_matchCompleteCounter <= 0.0f)
-				{
-					m_matchCompleteDelay = false;
-					MatchComplete();
-				}
-			}
-		}
+		//Countdown timer and display time remaining
+		//to all players when the match is about
+		//to commence
+		if(m_matchCountdownActive)
+			MatchCountdown();
 	}
 
-	//Resets all values and gets ready for the next match
-	private void Reset()
+	//Updates display message of all players when the
+	//match is about to begin
+	private void MatchCountdown()
 	{
-		//Reset all values
-		m_connectedPlayers = 0;
-		m_matchActive = false;
-		m_matchStarting = false;
-		m_matchCountdown = 3.0f;
-		m_enoughPlayers = false;
-		m_spreadCountdown = false;
-		m_spreadCounter = 3.0f;
-		m_postMatch = false;
-		m_postMatchCounter = 10.0f;
-		m_matchCompleteDelay = false;
-		m_matchCompleteCounter = 3.0f;
-		//Destroy the remaining player object
-		if(GameObject.FindGameObjectWithTag("Player"))
+		//Calculate how much time is remaining
+		m_matchCountdown -= Time.deltaTime;
+		//If the counter has reached zero then we
+		//will continue onto phase 3 of match start
+		if(m_matchCountdown <= 0.0f)
 		{
-			PhotonView l_remainingPhoton = GameObject.FindGameObjectWithTag("Player").GetComponent<PhotonView>();
-			l_remainingPhoton.RPC ("GameOver", l_remainingPhoton.owner);
+			//Clear players display message
+			this.photonView.RPC ("SetDisplayMessage", PhotonTargets.All, "");
+			//Disable match countdown
+			m_matchCountdownActive = false;
+			//Start phase three
+			StartGamePhaseThree();
 		}
-		CleanShit ();
-		StartNewMatch ();
+		//Create the message to display how long until the match begins
+		string l_displayMessage = "Match will begin in " + ((int)m_matchCountdown);
+		//Send this string to all players so they can update their display
+		this.photonView.RPC ("SetDisplayMessage", PhotonTargets.All, l_displayMessage);
 	}
 
-	private void MatchComplete()
-	{
-		PhotonView l_matchWinner = GameObject.FindGameObjectWithTag("Player").GetComponent<PhotonView>();
-		l_matchWinner.RPC ("Victory", l_matchWinner.owner);
-		m_postMatch = true;
-		m_postMatchCounter = 10.0f;
-		GameObject[] l_players = GameObject.FindGameObjectsWithTag("Player");
-		foreach ( GameObject player in l_players )
-			PhotonNetwork.Destroy (player);
-	}
-
-	private void StartMatch()
-	{
-		//Clear all players display messages
-		transform.GetComponent<PhotonView>().RPC ("SetDisplayMessage", PhotonTargets.All, "");
-		//Find all the players
-		GameObject[] l_players = GameObject.FindGameObjectsWithTag("Player");
-		//Take a note of how many players there are in this match
-		m_playersRemaining = l_players.Length;
-		//Release all players
-		foreach (GameObject player in l_players)
-		{
-			PhotonView l_photonView = player.GetComponent<PhotonView>();
-			l_photonView.RPC ("BikeReady", l_photonView.owner);
-		}
-	}
-
+	//Updates display message
 	[RPC]
-	public void PlayerDead()
-	{
-		if(m_isManager)
-		{
-			m_playersRemaining--;
-			if(m_playersRemaining <= 1)
-			{
-				m_matchCompleteDelay = true;
-				m_matchCompleteCounter = 3.0f;
-			}
-		}
-	}
-
-	private void Spread()
-	{
-		//Find all the newly spawned players
-		GameObject[] l_newPlayers = GameObject.FindGameObjectsWithTag("Player");
-		//Spread them out around the arena
-		GameObject.Find ("System").GetComponent<SpreadPlayers>().Spread(l_newPlayers);
-		//Start countdown for start of match
-		m_matchStarting = true;
-		m_matchCountdown = 5.0f;
-		string l_displayMessage = "Starting in " + ((int)m_matchCountdown);
-		transform.GetComponent<PhotonView>().RPC ( "SetDisplayMessage", PhotonTargets.All, l_displayMessage);
-	}
-
-	//Sets display message for all players
-	[RPC]
-	public void SetDisplayMessage( string a_displayMessage )
+	public void SetDisplayMessage(string a_displayMessage)
 	{
 		m_messageDisplay.text = a_displayMessage;
 	}
 
-	//Called client side when a player creates a
-	//new room, they will be the manager until
-	//they disconnect, then it will be given
-	//to someone else
-	public void SetManager()
+	//Called from players when they died
+	//Checks how many players are left, and ends
+	//the match when a single player is alive
+	[RPC]
+	public void PlayerDead()
 	{
-		m_isManager = true;
-		m_connectedPlayers = 1;
-		m_messageDisplay.text = "Need 1 more player to start";
-	}
-
-	void OnPhotonPlayerConnected(PhotonPlayer connected)
-	{
-		m_connectedPlayers++;
-	}
-
-	private void StartNewMatch()
-	{
-		if(m_isManager)
+		if(IsOwner())
 		{
-			//Remove current display message
-			m_messageDisplay.text = "";
-			//Spawn players
-			m_photonView.RPC ( "SpawnMe", PhotonTargets.All );
-			//Wait 3 seconds for players to spawn before we spread them
-			m_spreadCountdown = true;
+			m_playersAlive--;
+			//Check if we have a winner
+			if((m_playersAlive <= 1) && m_gameStarted)
+			{
+				//End the match
+				m_gameStarted = false;
+				//Announce the victor
+				PhotonView l_winnerPV = GameObject.FindGameObjectWithTag("Player").GetComponent<PhotonView>();
+				l_winnerPV.RPC ("Victory", l_winnerPV.owner);
+				//Clean up the match then get ready to start over
+				//after a few seconds have passed
+				Cleanup();
+				GameObject.Find ("System").GetComponent<CallBack>().CreateCallback( this.gameObject, "StartGamePhaseOne", 3.0f);
+			}
 		}
 	}
 
+	//Cleans up the scene, getting it ready for the start of a new match
+	private void Cleanup()
+	{
+		//Find all remaining players and tell them to clean up
+		GameObject[] l_players = GameObject.FindGameObjectsWithTag ("Player");
+		if(l_players != null)
+		{
+			foreach(GameObject Player in l_players)
+			{
+				//Find the PV
+				PhotonView PV = Player.GetComponent<PhotonView>();
+				//Tell the player to clean up
+				PV.RPC ("Cleanup", PV.owner);
+				//Tell the players collider spawner to clean up
+				PV.RPC ("DestroyColliders", PhotonTargets.All);
+			}
+		}
+	}
+
+	//Loops through the passed array of objects and either destroys them
+	//of sends a message to their owner to destroy them for us
+	private void DestroyObjects(GameObject[] a_objects)
+	{
+		foreach(GameObject GO in a_objects)
+		{
+			//Find the objects photon view
+			PhotonView PV = GO.GetComponent<PhotonView>();
+			//If we are the owner destroy it
+			//If not, tell the owner to destroy it for us
+			if(PV.isMine)
+				PhotonNetwork.Destroy(GO);
+			else
+				PV.RPC ("Destroy", PV.owner);
+		}
+	}
+
+	//Takes ownership of this object, called by
+	//another client when the owner of the match
+	//manager leaves - always needs to be one
+	public void RequestOwnership()
+	{
+		this.photonView.RequestOwnership ();
+	}
+
+	//Check if we are the owner of this object
+	private bool IsOwner()
+	{
+		return this.photonView.ownerId == PhotonNetwork.player.ID;
+	}
+
+	//Called whenever a new player connects to the game
+	void OnPhotonPlayerConnected(PhotonPlayer connected)
+	{
+		if( IsOwner () )
+		{
+			m_playerCount++;
+			//Start game when enough players have connected
+			if((!m_gameStarted) && (m_playerCount >= 2))
+				StartGamePhaseOne();
+		}
+	}
+
+	//Called to each player by the match manager during setup
 	[RPC]
 	public void SpawnMe()
 	{
-		//Tells each connected player to spawn a bike into the scene
-		PhotonNetwork.Instantiate( "FreeTurn", Vector3.zero, Quaternion.identity, 0 );
+		PhotonNetwork.Instantiate ("FreeTurn", Vector3.zero, Quaternion.identity, 0);
 	}
 
-	private void CleanShit()
+	//Spreads all players evenly around the outside of the arena
+	private void SpreadPlayers()
 	{
-		GameObject[] l_trails = GameObject.FindGameObjectsWithTag("Trail");
-		if(l_trails != null)
+		//Find the positions of the arena center and arena
+		//edge objects, there are used to spawn players in
+		//the correct positions at the start of a new match
+		Vector3 l_arenaCenter = GameObject.Find ("ArenaCenter").transform.position;
+		Vector3 l_arenaEdge = GameObject.Find ("ArenaEdge").transform.position;
+		//Calculate the distance between these two objects
+		//This is how far we will spawn the players from the
+		//centre of the arena
+		float l_spawnDistance = Vector3.Distance (l_arenaCenter, l_arenaEdge);
+		//Find all players in the scene
+		GameObject[] l_players = GameObject.FindGameObjectsWithTag ("Player");
+		//We spawn them in a circle around the arena center
+		//They will be evenly spaced around the edge of
+		//this circle, figure out the space to put between
+		float l_rotationAmount = 360.0f / l_players.Length;
+		//Create some temp variables used in the placement
+		//of the players
+		int iter = 1;
+		Vector3 yaxis = new Vector3 (0, 1, 0);
+		GameObject G = GameObject.Instantiate (new GameObject ()) as GameObject;
+		//Loop through the players and move them to the
+		//correct starting positions around the circle
+		foreach ( GameObject Player in l_players )
 		{
-			foreach(GameObject trail in l_trails)
-				PhotonNetwork.Destroy(trail);
+			//Create a temp transform for calculating where to
+			//place this player and place it on the arena edge
+			Transform T = G.transform;
+			T.position = l_arenaEdge;
+			//Rotate it around the center in the desired amount
+			T.RotateAround ( l_arenaCenter, yaxis, l_rotationAmount * iter );
+			//Send the player to this position
+			PhotonView pv = Player.GetComponent<PhotonView>();
+			pv.RPC ("MoveTo", pv.owner, T.position);
+			//Increment iterator so next placement will be
+			//in the correct placement
+			iter++;
 		}
+		GameObject.Destroy (G);
+	}
 
-		GameObject[] l_colliders = GameObject.FindGameObjectsWithTag ("Collider");
-		if(l_colliders != null)
+	//Called when enough players have connected
+	private void StartGamePhaseOne()
+	{
+		if(IsOwner ())
 		{
-			foreach(GameObject collider in l_colliders)
-				PhotonNetwork.Destroy(collider);
+			//Note that we are starting the match
+			m_gameStarted = true;
+			//Remove current display message
+			m_messageDisplay.text = "";
+			//Spawn players into the scene
+			photonView.RPC ("SpawnMe", PhotonTargets.All);
+			//Wait 3 seconds to give some time for all players
+			//to spawn into the scene, then continue onto
+			//phase two of the game setup
+			GameObject.Find ("System").GetComponent<CallBack>().CreateCallback(this.gameObject, "StartGamePhaseTwo", 3.0f);
 		}
+	}
 
-		int l_trailCounter = GameObject.FindGameObjectsWithTag ("Trail").Length;
-		Debug.Log ("Cleaned up trails, " + l_trailCounter + " are left for some reason...");
+	//Called 3 seconds after StartGamePhaseOne
+	private void StartGamePhaseTwo()
+	{
+		//Note how many we spawned so we know when to
+		//end the current match and announce victor
+		m_playersAlive = GameObject.FindGameObjectsWithTag("Player").Length;
+		//Spread all players evenly around the outside of the arena
+		SpreadPlayers ();
+		//Begin the countdown for the start of the match
+		m_matchCountdown = 5.0f;
+		m_matchCountdownActive = true;
+	}
+
+	//Called after all players have spawned and a
+	//5 second timer has finished counting down
+	private void StartGamePhaseThree()
+	{
+        //Remove screen message
+        this.photonView.RPC("SetDisplayMessage", PhotonTargets.All, "");
+        //Find all the players in the scene
+        GameObject[] l_players = GameObject.FindGameObjectsWithTag ("Player");
+		//Release their controls, allowing the
+		//match to begin
+		foreach (GameObject Player in l_players)
+		{
+			//Get their photon view
+			PhotonView PV = Player.GetComponent<PhotonView>();
+			PV.RPC ("StartMatch", PhotonTargets.All);
+		}
 	}
 }

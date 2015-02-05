@@ -17,7 +17,6 @@ public class NetworkPlayerControlDisable : Photon.MonoBehaviour
 		{
 			gameObject.GetComponent<BikeControlB>().enabled = false;
 			gameObject.GetComponent<CollisionDetection>().enabled = false;
-			gameObject.GetComponent<ColliderSpawner>().enabled = false;
 		}
 	}
 }
